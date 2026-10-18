@@ -1,0 +1,160 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- Validation Helpers ---
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['name', 'phone', 'country', 'balance', 'role', 'referralCode', 'createdAt', 'updatedAt'])
+        && data.name is string && data.name.size() > 0 && data.name.size() <= 100
+        && data.phone is string && data.phone.size() > 0 && data.phone.size() <= 20 && data.phone.matches('^[0-9 +]+$')
+        && data.country in ['BF', 'CI']
+        && data.balance is number && data.balance >= 0
+        && data.role in ['USER', 'ADMIN']
+        && data.referralCode is string && data.referralCode.size() > 0 && data.referralCode.size() <= 20
+        && data.createdAt == request.time
+        && data.updatedAt == request.time;
+    }
+
+    function isValidUserUpdate(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() <= 100
+        && data.phone is string && data.phone.size() > 0 && data.phone.size() <= 20 && data.phone.matches('^[0-9 +]+$')
+        && data.country in ['BF', 'CI']
+        && data.balance is number && data.balance >= 0
+        && data.role in ['USER', 'ADMIN']
+        && data.referralCode is string && data.referralCode.size() > 0 && data.referralCode.size() <= 20
+        && data.updatedAt == request.time;
+    }
+
+    function isValidTransaction(data) {
+      return data.keys().hasAll(['userId', 'type', 'amount', 'method', 'status', 'createdAt', 'updatedAt'])
+        && data.keys().size() == 7
+        && data.userId is string && data.userId == request.auth.uid
+        && data.type in ['DEPOSIT', 'WITHDRAW']
+        && data.amount is number && data.amount > 0
+        && data.method is string && data.method.size() > 0 && data.method.size() <= 50
+        && data.status in ['PENDING', 'COMPLETED', 'REJECTED']
+        && data.createdAt == request.time
+        && data.updatedAt == request.time;
+    }
+
+    function isValidTransactionUpdate(data) {
+       return data.userId is string
+        && data.type in ['DEPOSIT', 'WITHDRAW']
+        && data.amount is number && data.amount > 0
+        && data.method is string && data.method.size() > 0 && data.method.size() <= 50
+        && data.status in ['PENDING', 'COMPLETED', 'REJECTED']
+        && data.updatedAt == request.time;
+    }
+
+    function isValidInvestment(data) {
+      return data.keys().hasAll(['userId', 'vipId', 'price', 'dailyReward', 'duration', 'status', 'createdAt', 'updatedAt'])
+        && data.keys().size() == 8
+        && data.userId is string && data.userId == request.auth.uid
+        && data.vipId is number
+        && data.price is number
+        && data.dailyReward is number
+        && data.duration is number
+        && data.status in ['ACTIVE', 'COMPLETED']
+        && data.createdAt == request.time
+        && data.updatedAt == request.time;
+    }
+
+    function isValidInvestmentUpdate(data) {
+      return data.userId is string
+        && data.vipId is number
+        && data.price is number
+        && data.dailyReward is number
+        && data.duration is number
+        && data.status in ['ACTIVE', 'COMPLETED']
+        && data.updatedAt == request.time;
+    }
+
+    // --- Collections ---
+
+    match /admins/{userId} {
+      allow read: if isSignedIn();
+      allow write: if false; // Only modified via console
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && (request.auth.uid == userId || isAdmin());
+      allow list: if isAdmin();
+      
+      allow create: if isSignedIn() 
+        && isValidId(userId) 
+        && request.auth.uid == userId 
+        && isValidUser(incoming())
+        && incoming().balance == 0
+        && incoming().role == 'USER';
+        
+      allow update: if isSignedIn() && isValidId(userId) && isValidUserUpdate(incoming()) && (
+        isAdmin() ||
+        (request.auth.uid == userId 
+         && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'country', 'updatedAt'])
+         && incoming().balance == existing().balance
+         && incoming().role == existing().role
+         && incoming().referralCode == existing().referralCode
+        )
+      );
+    }
+
+    match /transactions/{transactionId} {
+      allow get: if isSignedIn() && isValidId(transactionId) && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      
+      allow create: if isSignedIn() 
+        && isValidId(transactionId) 
+        && isValidTransaction(incoming())
+        && incoming().status == 'PENDING'
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+        
+      allow update: if isSignedIn() && isValidId(transactionId) && isValidTransactionUpdate(incoming()) && (
+        isAdmin()
+      );
+    }
+
+    match /investments/{investmentId} {
+      allow get: if isSignedIn() && isValidId(investmentId) && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      
+      allow create: if isSignedIn() 
+        && isValidId(investmentId) 
+        && isValidInvestment(incoming())
+        && incoming().status == 'ACTIVE'
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+        
+      allow update: if isSignedIn() && isValidId(investmentId) && isValidInvestmentUpdate(incoming()) && (
+        isAdmin() ||
+        (existing().userId == request.auth.uid
+         && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+         && incoming().status == 'COMPLETED'
+        )
+      );
+    }
+  }
+}

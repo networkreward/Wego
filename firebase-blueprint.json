@@ -1,0 +1,66 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile with balance and referral information",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 100 },
+        "phone": { "type": "string", "maxLength": 20, "pattern": "^[0-9 +]+$" },
+        "country": { "type": "string", "enum": ["BF", "CI"] },
+        "balance": { "type": "number", "minimum": 0 },
+        "role": { "type": "string", "enum": ["USER", "ADMIN"] },
+        "referralCode": { "type": "string", "maxLength": 20 },
+        "referrerId": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "timestamp" },
+        "updatedAt": { "type": "timestamp" }
+      },
+      "required": ["name", "phone", "country", "balance", "role", "referralCode", "createdAt", "updatedAt"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Deposit or withdrawal request",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "type": { "type": "string", "enum": ["DEPOSIT", "WITHDRAW"] },
+        "amount": { "type": "number", "minimum": 1 },
+        "method": { "type": "string", "maxLength": 50 },
+        "status": { "type": "string", "enum": ["PENDING", "COMPLETED", "REJECTED"] },
+        "createdAt": { "type": "timestamp" },
+        "updatedAt": { "type": "timestamp" }
+      },
+      "required": ["userId", "type", "amount", "method", "status", "createdAt", "updatedAt"]
+    },
+    "Investment": {
+      "title": "Investment",
+      "description": "VIP plan purchased by user",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "vipId": { "type": "number" },
+        "price": { "type": "number" },
+        "dailyReward": { "type": "number" },
+        "duration": { "type": "number" },
+        "status": { "type": "string", "enum": ["ACTIVE", "COMPLETED"] },
+        "createdAt": { "type": "timestamp" },
+        "updatedAt": { "type": "timestamp" }
+      },
+      "required": ["userId", "vipId", "price", "dailyReward", "duration", "status", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User profiles. Protected: users can read their own, admins can read all. Admins update balance, users can update basic info."
+    },
+    "/transactions/{transactionId}": {
+      "schema": { "$ref": "#/entities/Transaction" },
+      "description": "Deposit/Withdrawal requests. Users create PENDING, admins update to COMPLETED/REJECTED."
+    },
+    "/investments/{investmentId}": {
+      "schema": { "$ref": "#/entities/Investment" },
+      "description": "User active VIP plans. Users create ACTIVE when investing."
+    }
+  }
+}
